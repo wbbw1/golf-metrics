@@ -58,12 +58,12 @@ export async function getLatestMetrics(): Promise<DashboardMetrics> {
     }
 
     // Parse metrics from JSONB
-    const metrics: MetricValue[] = [];
+    const metrics: Array<MetricValue & { key: string }> = [];
     const metricsData = latestSnapshot.metrics as Record<string, any>;
 
     for (const [key, value] of Object.entries(metricsData)) {
       if (value && typeof value === 'object') {
-        metrics.push(value as MetricValue);
+        metrics.push({ ...value, key } as MetricValue & { key: string });
       }
     }
 

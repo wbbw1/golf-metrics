@@ -19,7 +19,7 @@ export interface DashboardMetrics {
 export interface ProviderDashboardData {
   providerId: string;
   name: string;
-  metrics: MetricValue[];
+  metrics: Array<MetricValue & { key: string }>;
   lastFetched: Date;
   isStale: boolean;
   isFetching?: boolean;
