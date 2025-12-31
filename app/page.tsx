@@ -1,4 +1,4 @@
-import { getLatestMetrics, getDashboardStats } from '@/lib/db/metrics-queries';
+import { getLatestMetrics, getDashboardStats, getMetricsTimeSeries } from '@/lib/db/metrics-queries';
 import { MetricCard } from '@/app/components/MetricCard';
 import { ProviderStatus } from '@/app/components/ProviderStatus';
 import { FetchTrigger } from '@/app/components/FetchTrigger';
@@ -12,6 +12,14 @@ export default async function DashboardPage() {
     getLatestMetrics(),
     getDashboardStats(),
   ]);
+
+  // Fetch historical data for sparklines
+  const providerHistory = await Promise.all(
+    metricsData.providers.map(async (provider) => ({
+      providerId: provider.providerId,
+      history: await getMetricsTimeSeries(provider.providerId, 90),
+    }))
+  );
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -74,26 +82,44 @@ export default async function DashboardPage() {
         </div>
 
         {/* Providers Section */}
-        {metricsData.providers.map((provider) => (
-          <section key={provider.providerId} className="mb-12">
-            <ProviderStatus provider={provider} />
+        {metricsData.providers.map((provider) => {
+          const history = providerHistory.find((h) => h.providerId === provider.providerId);
 
-            {/* Metrics Grid */}
-            {provider.metrics.length > 0 ? (
-              <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {provider.metrics.map((metric) => (
-                  <MetricCard key={metric.key} metric={metric} />
-                ))}
-              </div>
-            ) : (
+          return (
+            <section key={provider.providerId} className="mb-12">
+              <ProviderStatus provider={provider} />
+
+              {/* Metrics Grid */}
+              {provider.metrics.length > 0 ? (
+                <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {provider.metrics.map((metric) => {
+                    // Format historical data for MetricHistory component
+                    const historyData = history?.history
+                      .map((h) => ({
+                        date: h.date,
+                        value: h[metric.key]
+                      }))
+                      .filter((item) => item.value !== undefined && typeof item.value === 'number') || [];
+
+                    return (
+                      <MetricCard
+                        key={metric.key}
+                        metric={metric}
+                        historyData={historyData}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
               <div className="mt-6 rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
                 <p className="text-sm text-zinc-600 dark:text-zinc-400">
                   No metrics available yet
                 </p>
               </div>
-            )}
-          </section>
-        ))}
+              )}
+            </section>
+          );
+        })}
 
         {metricsData.providers.length === 0 && (
           <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">

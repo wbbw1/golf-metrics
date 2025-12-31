@@ -44,6 +44,13 @@ export interface DataProvider<TConfig = unknown, TRawData = unknown> {
   fetch(): Promise<ProviderMetrics>;
 
   /**
+   * Optional: Fetch multiple time-period snapshots
+   * For providers that track data by time periods (weekly, monthly)
+   * @returns Array of standardized metrics, one per time period
+   */
+  fetchMultiple?(): Promise<ProviderMetrics[]>;
+
+  /**
    * Transform raw API response to standardized format
    * @param rawData - Raw data from the provider's API
    * @returns Standardized metrics

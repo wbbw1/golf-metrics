@@ -54,7 +54,7 @@ export class FetchOrchestrator {
    * Fetch data from a single provider
    *
    * @param provider - The provider to fetch from
-   * @returns The fetched metrics
+   * @returns The fetched metrics (latest one if multiple)
    */
   async fetchProvider(provider: DataProvider): Promise<ProviderMetrics> {
     const logId = await this.startFetchLog(provider.id);
@@ -63,24 +63,50 @@ export class FetchOrchestrator {
     try {
       console.log(`[Orchestrator] Fetching from ${provider.name}...`);
 
-      // Fetch data from provider
-      const data = await provider.fetch();
+      // Check if provider supports multiple snapshots (e.g., weekly data)
+      if (provider.fetchMultiple) {
+        const dataArray = await provider.fetchMultiple();
+        const duration = Date.now() - startTime;
 
-      // Calculate duration
-      const duration = Date.now() - startTime;
+        if (dataArray.length === 0) {
+          throw new Error('No data returned from provider');
+        }
 
-      // Save success
-      await this.saveFetchSuccess(logId, duration, data);
+        console.log(`[Orchestrator] Fetched ${dataArray.length} snapshots from ${provider.name}`);
 
-      // Save metrics snapshot
-      await this.saveMetricsSnapshot(data);
+        // Save each snapshot separately
+        for (const data of dataArray) {
+          await this.saveMetricsSnapshot(data);
+        }
 
-      // Update provider's last fetch time
-      await this.updateProviderFetchTime(provider.id);
+        // Save success log
+        await this.saveFetchSuccess(logId, duration, dataArray[0]);
 
-      console.log(`[Orchestrator] ✓ ${provider.name} fetched successfully in ${duration}ms`);
+        // Update provider's last fetch time
+        await this.updateProviderFetchTime(provider.id);
 
-      return data;
+        console.log(`[Orchestrator] ✓ ${provider.name} fetched ${dataArray.length} snapshots in ${duration}ms`);
+
+        // Return the latest snapshot
+        return dataArray[0];
+      } else {
+        // Standard single-snapshot fetch
+        const data = await provider.fetch();
+        const duration = Date.now() - startTime;
+
+        // Save success
+        await this.saveFetchSuccess(logId, duration, data);
+
+        // Save metrics snapshot
+        await this.saveMetricsSnapshot(data);
+
+        // Update provider's last fetch time
+        await this.updateProviderFetchTime(provider.id);
+
+        console.log(`[Orchestrator] ✓ ${provider.name} fetched successfully in ${duration}ms`);
+
+        return data;
+      }
     } catch (error) {
       const duration = Date.now() - startTime;
 
@@ -185,16 +211,37 @@ export class FetchOrchestrator {
    * Save metrics snapshot to database
    */
   private async saveMetricsSnapshot(data: ProviderMetrics): Promise<void> {
-    await this.prisma.metricsSnapshot.create({
-      data: {
+    // Check if a snapshot for this exact date already exists
+    const existing = await this.prisma.metricsSnapshot.findFirst({
+      where: {
         providerId: data.providerId,
-        snapshotDate: new Date(),
         snapshotTime: data.timestamp,
-        metrics: data.metrics as any, // Prisma Json type
-        rawData: data.metadata as any,
-        recordsCount: Object.keys(data.metrics).length,
       },
     });
+
+    if (existing) {
+      // Update existing snapshot
+      await this.prisma.metricsSnapshot.update({
+        where: { id: existing.id },
+        data: {
+          metrics: data.metrics as any,
+          rawData: data.metadata as any,
+          recordsCount: Object.keys(data.metrics).length,
+        },
+      });
+    } else {
+      // Create new snapshot
+      await this.prisma.metricsSnapshot.create({
+        data: {
+          providerId: data.providerId,
+          snapshotDate: data.timestamp, // Use the timestamp as the date
+          snapshotTime: data.timestamp,
+          metrics: data.metrics as any, // Prisma Json type
+          rawData: data.metadata as any,
+          recordsCount: Object.keys(data.metrics).length,
+        },
+      });
+    }
   }
 
   /**

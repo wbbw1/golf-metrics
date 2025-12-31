@@ -34,7 +34,7 @@ export class NotionProvider extends BaseProvider<NotionConfig, NotionRawData> {
   }
 
   /**
-   * Fetch data from Notion database
+   * Fetch data from Notion database (latest week only)
    */
   async fetch(): Promise<ProviderMetrics> {
     return this.fetchWithRetry(async () => {
@@ -59,7 +59,33 @@ export class NotionProvider extends BaseProvider<NotionConfig, NotionRawData> {
   }
 
   /**
-   * Transform Notion database response to standardized format
+   * Fetch multiple weeks of data from Notion database
+   * Each row in Notion represents one week of statistics
+   */
+  async fetchMultiple(): Promise<ProviderMetrics[]> {
+    return this.fetchWithRetry(async () => {
+      this.log('Fetching multiple weeks from Notion database');
+
+      // Use rate limiter to respect API limits
+      const response = await this.rateLimiter.execute(async () => {
+        return await this.client.databases.query({
+          database_id: this.databaseId,
+          sorts: [
+            {
+              timestamp: 'created_time',
+              direction: 'descending',
+            },
+          ],
+          page_size: 100, // Fetch last 100 weeks
+        });
+      });
+
+      return this.transformMultiple(response as NotionRawData);
+    });
+  }
+
+  /**
+   * Transform Notion database response to standardized format (latest week only)
    */
   transform(rawData: NotionRawData): ProviderMetrics {
     this.log(`Transforming ${rawData.results.length} Notion entries`);
@@ -97,6 +123,65 @@ export class NotionProvider extends BaseProvider<NotionConfig, NotionRawData> {
         hasMore: rawData.has_more,
       },
     };
+  }
+
+  /**
+   * Transform Notion database response into multiple ProviderMetrics (one per week)
+   * Each row in Notion represents a complete week of statistics
+   */
+  transformMultiple(rawData: NotionRawData): ProviderMetrics[] {
+    this.log(`Transforming ${rawData.results.length} Notion weeks`);
+
+    const weeklySnapshots: ProviderMetrics[] = [];
+
+    // Group rows by week (by Date field)
+    for (const row of rawData.results) {
+      try {
+        // Type guard: only process PageObjectResponse which has properties
+        if (!('properties' in row)) continue;
+
+        const rowMetrics = this.parseNotionRow(row);
+        if (!rowMetrics) continue;
+
+        // Get the date for this week
+        const props = row.properties;
+        const dateProperty = props['Date'];
+        const weekDate =
+          dateProperty && 'date' in dateProperty && dateProperty.date?.start
+            ? new Date(dateProperty.date.start)
+            : 'created_time' in row
+            ? new Date(row.created_time)
+            : new Date();
+
+        // Parse all metrics from this row into a single snapshot
+        const metrics: Record<string, MetricValue> = {};
+        const metricsArray = Array.isArray(rowMetrics) ? rowMetrics : [rowMetrics];
+
+        for (const metric of metricsArray) {
+          const key = this.normalizeMetricKey(metric.name);
+          metrics[key] = {
+            value: metric.value,
+            type: metric.type,
+            label: metric.name,
+          };
+        }
+
+        // Create a snapshot for this week
+        weeklySnapshots.push({
+          providerId: this.id,
+          timestamp: weekDate,
+          metrics,
+          metadata: {
+            weekDate: weekDate.toISOString(),
+          },
+        });
+      } catch (error) {
+        this.warn('Failed to parse Notion row for weekly snapshot', error);
+      }
+    }
+
+    this.log(`Created ${weeklySnapshots.length} weekly snapshots`);
+    return weeklySnapshots;
   }
 
   /**

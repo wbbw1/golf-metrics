@@ -57,13 +57,22 @@ export async function getLatestMetrics(): Promise<DashboardMetrics> {
       oldestDataAge = minutesSinceLastFetch;
     }
 
-    // Parse metrics from JSONB
+    // Parse metrics from JSONB and add comparison data
     const metrics: Array<MetricValue & { key: string }> = [];
     const metricsData = latestSnapshot.metrics as Record<string, any>;
 
+    // Get comparison data for this provider (7-day comparison)
+    const comparison = await getMetricsComparison(provider.providerId, 7);
+
     for (const [key, value] of Object.entries(metricsData)) {
       if (value && typeof value === 'object') {
-        metrics.push({ ...value, key } as MetricValue & { key: string });
+        const comparisonData = comparison?.comparisons[key];
+        metrics.push({
+          ...value,
+          key,
+          change: comparisonData?.change ?? undefined,
+          changeDirection: comparisonData?.trend === 'up' ? 'up' : comparisonData?.trend === 'down' ? 'down' : 'neutral',
+        } as MetricValue & { key: string });
       }
     }
 
@@ -186,4 +195,129 @@ export async function getDashboardStats() {
     activeProviders,
     lastFetch: lastFetch?.startedAt || null,
   };
+}
+
+/**
+ * Get metrics comparison between the two most recent weeks
+ * For weekly data: compares Week N vs Week N-1
+ */
+export async function getMetricsComparison(
+  providerId: string,
+  periodDays: number = 7 // Not used for weekly comparison, kept for compatibility
+) {
+  // Get the 2 most recent snapshots
+  const snapshots = await prisma.metricsSnapshot.findMany({
+    where: { providerId },
+    orderBy: { snapshotTime: 'desc' },
+    take: 2,
+  });
+
+  if (snapshots.length === 0) {
+    return null;
+  }
+
+  const currentSnapshot = snapshots[0];
+  const previousSnapshot = snapshots.length > 1 ? snapshots[1] : null;
+
+  const currentMetrics = currentSnapshot.metrics as Record<string, any>;
+  const previousMetrics = previousSnapshot?.metrics as Record<string, any> || {};
+
+  const comparisons: Record<string, {
+    current: number;
+    previous: number | null;
+    change: number | null;
+    changePercent: number | null;
+    trend: 'up' | 'down' | 'neutral';
+  }> = {};
+
+  // Calculate comparisons for each metric
+  for (const [key, value] of Object.entries(currentMetrics)) {
+    if (value && typeof value === 'object' && 'value' in value) {
+      const currentValue = typeof value.value === 'number' ? value.value : parseFloat(String(value.value));
+      const previousValue = previousMetrics[key]?.value;
+      const prevNum = previousValue !== undefined && previousValue !== null
+        ? (typeof previousValue === 'number' ? previousValue : parseFloat(String(previousValue)))
+        : null;
+
+      let change = null;
+      let changePercent = null;
+      let trend: 'up' | 'down' | 'neutral' = 'neutral';
+
+      if (prevNum !== null && !isNaN(prevNum) && !isNaN(currentValue)) {
+        change = currentValue - prevNum;
+        changePercent = prevNum !== 0 ? (change / prevNum) * 100 : 0;
+        trend = change > 0 ? 'up' : change < 0 ? 'down' : 'neutral';
+      }
+
+      comparisons[key] = {
+        current: currentValue,
+        previous: prevNum,
+        change,
+        changePercent,
+        trend,
+      };
+    }
+  }
+
+  return {
+    periodDays, // For compatibility
+    currentDate: currentSnapshot.snapshotTime,
+    previousDate: previousSnapshot?.snapshotTime || null,
+    comparisons,
+  };
+}
+
+/**
+ * Get time-series data for charts
+ */
+export async function getMetricsTimeSeries(
+  providerId: string,
+  days: number = 30
+) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  const snapshots = await prisma.metricsSnapshot.findMany({
+    where: {
+      providerId,
+      snapshotDate: { gte: cutoffDate },
+    },
+    orderBy: { snapshotTime: 'asc' },
+    select: {
+      snapshotDate: true,
+      snapshotTime: true,
+      metrics: true,
+    },
+  });
+
+  // Transform into chart-friendly format
+  const timeSeriesData: Array<{
+    date: string;
+    timestamp: Date;
+    [key: string]: any;
+  }> = [];
+
+  for (const snapshot of snapshots) {
+    const metrics = snapshot.metrics as Record<string, any>;
+    const dataPoint: any = {
+      date: snapshot.snapshotDate.toISOString().split('T')[0],
+      timestamp: snapshot.snapshotTime,
+    };
+
+    // Extract numeric values for each metric
+    for (const [key, value] of Object.entries(metrics)) {
+      if (value && typeof value === 'object' && 'value' in value) {
+        const numValue = typeof value.value === 'number'
+          ? value.value
+          : parseFloat(String(value.value));
+        if (!isNaN(numValue)) {
+          dataPoint[key] = numValue;
+        }
+      }
+    }
+
+    timeSeriesData.push(dataPoint);
+  }
+
+  return timeSeriesData;
 }
