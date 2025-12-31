@@ -1,0 +1,115 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums for better type safety
+enum FetchStatus {
+  SUCCESS
+  FAILURE
+  PARTIAL
+  TIMEOUT
+}
+
+enum ProviderStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  ERROR
+}
+
+// Provider Configuration Table
+model ProvidersConfig {
+  id                     String          @id @default(uuid()) @db.Uuid
+  providerId             String          @unique @map("provider_id") @db.VarChar(50)
+  name                   String          @db.VarChar(100)
+  isEnabled              Boolean         @default(true) @map("is_enabled")
+  status                 ProviderStatus  @default(ACTIVE)
+  fetchIntervalMinutes   Int             @map("fetch_interval_minutes")
+  apiCredentials         Json?           @map("api_credentials") @db.JsonB
+  config                 Json?           @db.JsonB
+  lastFetchAt            DateTime?       @map("last_fetch_at") @db.Timestamptz(3)
+  nextFetchAt            DateTime?       @map("next_fetch_at") @db.Timestamptz(3)
+  createdAt              DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // Relations
+  metricsSnapshots MetricsSnapshot[]
+  fetchLogs        FetchLog[]
+
+  @@map("providers_config")
+}
+
+// Metrics Snapshots Table (Time-series data)
+model MetricsSnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  providerId       String   @map("provider_id") @db.VarChar(50)
+  snapshotDate     DateTime @map("snapshot_date") @db.Date
+  snapshotTime     DateTime @map("snapshot_time") @db.Timestamptz(3)
+  metrics          Json     @db.JsonB
+  rawData          Json?    @map("raw_data") @db.JsonB
+  recordsCount     Int?     @map("records_count")
+  fetchDurationMs  Int?     @map("fetch_duration_ms")
+  dataQualityScore Float?   @map("data_quality_score")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Relations
+  provider ProvidersConfig @relation(fields: [providerId], references: [providerId], onDelete: Cascade)
+
+  // Indexes for performance
+  @@unique([providerId, snapshotTime], name: "unique_snapshot")
+  @@index([providerId, snapshotTime(sort: Desc)], name: "idx_provider_time")
+  @@index([snapshotTime(sort: Desc), providerId], name: "idx_time_provider")
+  @@index([snapshotDate(sort: Desc)], name: "idx_snapshot_date")
+  @@map("metrics_snapshots")
+}
+
+// Fetch Logs Table (Audit trail)
+model FetchLog {
+  id                    String      @id @default(uuid()) @db.Uuid
+  providerId            String      @map("provider_id") @db.VarChar(50)
+  startedAt             DateTime    @map("started_at") @db.Timestamptz(3)
+  completedAt           DateTime?   @map("completed_at") @db.Timestamptz(3)
+  status                FetchStatus
+  errorMessage          String?     @map("error_message") @db.Text
+  errorCode             String?     @map("error_code") @db.VarChar(50)
+  durationMs            Int?        @map("duration_ms")
+  recordsFetched        Int?        @map("records_fetched")
+  retryCount            Int         @default(0) @map("retry_count")
+  httpStatusCode        Int?        @map("http_status_code")
+  apiRateLimitRemaining Int?        @map("api_rate_limit_remaining")
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Relations
+  provider ProvidersConfig @relation(fields: [providerId], references: [providerId], onDelete: Cascade)
+
+  // Indexes for querying logs
+  @@index([providerId, startedAt(sort: Desc)], name: "idx_fetch_logs_provider")
+  @@index([status, startedAt(sort: Desc)], name: "idx_fetch_logs_status")
+  @@map("fetch_logs")
+}
+
+// AI Insights Table (Future feature)
+model AiInsight {
+  id              String    @id @default(uuid()) @db.Uuid
+  insightDate     DateTime  @map("insight_date") @db.Date
+  insightType     String    @map("insight_type") @db.VarChar(50)
+  title           String    @db.VarChar(200)
+  description     String?   @db.Text
+  confidenceScore Float?    @map("confidence_score")
+  relatedMetrics  Json?     @map("related_metrics") @db.JsonB
+  isAcknowledged  Boolean   @default(false) @map("is_acknowledged")
+  acknowledgedAt  DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([insightDate(sort: Desc)], name: "idx_insight_date")
+  @@index([insightType], name: "idx_insight_type")
+  @@map("ai_insights")
+}
