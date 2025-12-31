@@ -25,7 +25,21 @@ export function MetricHistory({ metricLabel, history }: MetricHistoryProps) {
 
   const formatDate = (dateString: string) => {
     try {
-      return format(new Date(dateString), 'MMM d');
+      const date = new Date(dateString);
+      // Assuming date is the Monday of the week, calculate Sunday
+      const monday = new Date(date);
+      const sunday = new Date(date);
+      sunday.setDate(monday.getDate() + 6);
+
+      const currentYear = new Date().getFullYear();
+      const showYear = monday.getFullYear() !== currentYear || sunday.getFullYear() !== currentYear;
+
+      // Format as "Dec 23-29" or "Dec 23-29, 2025" if different year
+      const mondayStr = format(monday, 'MMM d');
+      const sundayDay = sunday.getDate();
+      const yearStr = showYear ? `, ${monday.getFullYear()}` : '';
+
+      return `${mondayStr}-${sundayDay}${yearStr}`;
     } catch {
       return dateString;
     }
@@ -49,7 +63,7 @@ export function MetricHistory({ metricLabel, history }: MetricHistoryProps) {
       </button>
 
       {isExpanded && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-4">
           {/* Chart */}
           <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800/50">
             <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
@@ -90,78 +104,6 @@ export function MetricHistory({ metricLabel, history }: MetricHistoryProps) {
                 />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-
-          {/* Data Table */}
-          <div className="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-800/50">
-            <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-              Weekly Data
-            </h4>
-            <div className="max-h-64 overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-zinc-50 dark:bg-zinc-800/50">
-                  <tr className="border-b border-zinc-200 dark:border-zinc-700">
-                    <th className="pb-2 text-left font-medium text-zinc-600 dark:text-zinc-400">
-                      Week
-                    </th>
-                    <th className="pb-2 text-right font-medium text-zinc-600 dark:text-zinc-400">
-                      Value
-                    </th>
-                    <th className="pb-2 text-right font-medium text-zinc-600 dark:text-zinc-400">
-                      Change
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((item, index) => {
-                    const prevValue = index < history.length - 1 ? history[index + 1].value : null;
-                    const change = prevValue !== null ? item.value - prevValue : null;
-                    const changePercent =
-                      prevValue !== null && prevValue !== 0
-                        ? ((change || 0) / prevValue) * 100
-                        : null;
-
-                    return (
-                      <tr
-                        key={index}
-                        className="border-b border-zinc-100 last:border-0 dark:border-zinc-700/50"
-                      >
-                        <td className="py-2 text-zinc-700 dark:text-zinc-300">
-                          {formatDate(item.date)}
-                        </td>
-                        <td className="py-2 text-right font-medium text-zinc-900 dark:text-zinc-100">
-                          {formatNumber(item.value)}
-                        </td>
-                        <td className="py-2 text-right">
-                          {change !== null ? (
-                            <span
-                              className={`font-medium ${
-                                change > 0
-                                  ? 'text-emerald-600 dark:text-emerald-500'
-                                  : change < 0
-                                  ? 'text-red-600 dark:text-red-500'
-                                  : 'text-zinc-500'
-                              }`}
-                            >
-                              {change > 0 ? '+' : ''}
-                              {formatNumber(change)}
-                              {changePercent !== null && (
-                                <span className="ml-1 text-xs">
-                                  ({change > 0 ? '+' : ''}
-                                  {changePercent.toFixed(1)}%)
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-zinc-400">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
       )}

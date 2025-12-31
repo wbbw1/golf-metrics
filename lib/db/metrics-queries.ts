@@ -282,13 +282,23 @@ export async function getMetricsTimeSeries(
       providerId,
       snapshotDate: { gte: cutoffDate },
     },
-    orderBy: { snapshotTime: 'asc' },
+    orderBy: { snapshotTime: 'desc' },
     select: {
       snapshotDate: true,
       snapshotTime: true,
       metrics: true,
     },
   });
+
+  // Deduplicate by week - keep only the most recent snapshot per week
+  const weekMap = new Map<string, typeof snapshots[0]>();
+
+  for (const snapshot of snapshots) {
+    const weekKey = snapshot.snapshotDate.toISOString().split('T')[0];
+    if (!weekMap.has(weekKey)) {
+      weekMap.set(weekKey, snapshot);
+    }
+  }
 
   // Transform into chart-friendly format
   const timeSeriesData: Array<{
@@ -297,7 +307,12 @@ export async function getMetricsTimeSeries(
     [key: string]: any;
   }> = [];
 
-  for (const snapshot of snapshots) {
+  // Sort by date ascending for proper chart display
+  const uniqueSnapshots = Array.from(weekMap.values()).sort(
+    (a, b) => a.snapshotTime.getTime() - b.snapshotTime.getTime()
+  );
+
+  for (const snapshot of uniqueSnapshots) {
     const metrics = snapshot.metrics as Record<string, any>;
     const dataPoint: any = {
       date: snapshot.snapshotDate.toISOString().split('T')[0],
