@@ -12,6 +12,7 @@ import { prisma } from '@/lib/prisma';
 import { FetchOrchestrator } from '@/lib/orchestration/fetch-orchestrator';
 import { providerRegistry } from '@/lib/providers/registry';
 import { NotionProvider } from '@/lib/providers/notion/notion-provider';
+import { AttioProvider } from '@/lib/providers/attio/attio-provider';
 
 /**
  * Initialize all configured providers
@@ -29,8 +30,16 @@ function initializeProviders() {
     providerRegistry.register(notionProvider);
   }
 
+  // Register Attio provider if configured
+  if (process.env.ATTIO_API_KEY) {
+    const attioProvider = new AttioProvider({
+      apiKey: process.env.ATTIO_API_KEY,
+      objectSlug: 'deals', // Default to "deals" object
+    });
+    providerRegistry.register(attioProvider);
+  }
+
   // Additional providers will be registered here as we add them
-  // if (process.env.ATTIO_API_KEY) { ... }
   // if (process.env.GA4_PROPERTY_ID) { ... }
 }
 

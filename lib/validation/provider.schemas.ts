@@ -39,7 +39,7 @@ export const NotionConfigSchema = z.object({
  */
 export const AttioConfigSchema = z.object({
   apiKey: z.string().min(1, 'Attio API key is required'),
-  workspaceId: z.string().optional(),
+  objectSlug: z.string().default('deals'), // Default to "deals" object
 });
 
 /**
