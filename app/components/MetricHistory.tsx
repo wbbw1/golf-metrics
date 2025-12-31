@@ -10,9 +10,10 @@ interface MetricHistoryProps {
     date: string;
     value: number;
   }>;
+  periodLabel?: string;
 }
 
-export function MetricHistory({ metricLabel, history }: MetricHistoryProps) {
+export function MetricHistory({ metricLabel, history, periodLabel }: MetricHistoryProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (history.length < 2) {
@@ -51,7 +52,7 @@ export function MetricHistory({ metricLabel, history }: MetricHistoryProps) {
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex w-full items-center justify-between text-sm font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
       >
-        <span>View {history.length} weeks history</span>
+        <span>View {periodLabel || `${history.length} weeks`} history</span>
         <svg
           className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
           fill="none"

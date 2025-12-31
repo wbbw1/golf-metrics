@@ -13,6 +13,7 @@ import { FetchOrchestrator } from '@/lib/orchestration/fetch-orchestrator';
 import { providerRegistry } from '@/lib/providers/registry';
 import { NotionProvider } from '@/lib/providers/notion/notion-provider';
 import { AttioProvider } from '@/lib/providers/attio/attio-provider';
+import { GA4Provider } from '@/lib/providers/ga4/ga4-provider';
 
 /**
  * Initialize all configured providers
@@ -39,8 +40,14 @@ function initializeProviders() {
     providerRegistry.register(attioProvider);
   }
 
-  // Additional providers will be registered here as we add them
-  // if (process.env.GA4_PROPERTY_ID) { ... }
+  // Register GA4 provider if configured
+  if (process.env.GA4_PROPERTY_ID && process.env.GA4_SERVICE_ACCOUNT_KEY) {
+    const ga4Provider = new GA4Provider({
+      propertyId: process.env.GA4_PROPERTY_ID,
+      serviceAccountKey: process.env.GA4_SERVICE_ACCOUNT_KEY,
+    });
+    providerRegistry.register(ga4Provider);
+  }
 }
 
 /**
@@ -66,6 +73,7 @@ export async function fetchAllMetrics() {
     // Revalidate the dashboard page
     revalidatePath('/');
     revalidatePath('/dashboard');
+    revalidatePath('/ceo');
 
     const successCount = results.filter((r) => r.status === 'success').length;
 
@@ -110,6 +118,7 @@ export async function fetchProviderMetrics(providerId: string) {
     // Revalidate the dashboard page
     revalidatePath('/');
     revalidatePath('/dashboard');
+    revalidatePath('/ceo');
 
     return {
       success: true,
@@ -160,6 +169,7 @@ export async function fetchStaleMetrics() {
     // Revalidate the dashboard page
     revalidatePath('/');
     revalidatePath('/dashboard');
+    revalidatePath('/ceo');
 
     const successCount = results.filter((r) => r.status === 'success').length;
 

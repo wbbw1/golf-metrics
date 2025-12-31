@@ -67,11 +67,14 @@ export async function getLatestMetrics(): Promise<DashboardMetrics> {
     for (const [key, value] of Object.entries(metricsData)) {
       if (value && typeof value === 'object') {
         const comparisonData = comparison?.comparisons[key];
+        // Use provider's change if available, otherwise use calculated comparison
+        const change = value.change !== undefined ? value.change : (comparisonData?.change ?? undefined);
+        const changeDirection = value.changeDirection || (comparisonData?.trend === 'up' ? 'up' : comparisonData?.trend === 'down' ? 'down' : 'neutral');
         metrics.push({
           ...value,
           key,
-          change: comparisonData?.change ?? undefined,
-          changeDirection: comparisonData?.trend === 'up' ? 'up' : comparisonData?.trend === 'down' ? 'down' : 'neutral',
+          change,
+          changeDirection,
         } as MetricValue & { key: string });
       }
     }

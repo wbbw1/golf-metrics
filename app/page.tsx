@@ -3,6 +3,7 @@ import { MetricCard } from '@/app/components/MetricCard';
 import { ProviderStatus } from '@/app/components/ProviderStatus';
 import { FetchTrigger } from '@/app/components/FetchTrigger';
 import { PipelineSnapshot } from '@/app/components/ceo/PipelineSnapshot';
+import { TrafficMetrics } from '@/app/components/ceo/TrafficMetrics';
 import { formatDistanceToNow } from 'date-fns';
 
 // Force dynamic rendering
@@ -94,7 +95,7 @@ export default async function DashboardPage() {
           </div>
 
           {metricsData.providers
-            .filter((provider) => provider.providerId !== 'attio')
+            .filter((provider) => provider.providerId !== 'attio' && provider.providerId !== 'ga4')
             .map((provider) => {
               const history = providerHistory.find((h) => h.providerId === provider.providerId);
 
@@ -145,6 +146,116 @@ export default async function DashboardPage() {
             </p>
           </div>
         )}
+
+        {/* Website Traffic from GA4 */}
+        {(async () => {
+          const ga4Provider = metricsData.providers.find((p) => p.providerId === 'ga4');
+          if (!ga4Provider) return null;
+
+          // Fetch historical data for charts (90 days of daily data)
+          const ga4History = await getMetricsTimeSeries('ga4', 90);
+
+          const ga4Metrics = {
+            todayUsers: ga4Provider.metrics.find((m) => m.key === 'today_users')?.value as number || 0,
+            todaySessions: ga4Provider.metrics.find((m) => m.key === 'today_sessions')?.value as number || 0,
+            todayUsersChange: ga4Provider.metrics.find((m) => m.key === 'today_users')?.change,
+            todaySessionsChange: ga4Provider.metrics.find((m) => m.key === 'today_sessions')?.change,
+            weekUsers: ga4Provider.metrics.find((m) => m.key === 'week_users')?.value as number || 0,
+            weekSessions: ga4Provider.metrics.find((m) => m.key === 'week_sessions')?.value as number || 0,
+            weekUsersChange: ga4Provider.metrics.find((m) => m.key === 'week_users')?.change,
+            weekSessionsChange: ga4Provider.metrics.find((m) => m.key === 'week_sessions')?.change,
+            monthUsers: ga4Provider.metrics.find((m) => m.key === 'month_users')?.value as number || 0,
+            monthSessions: ga4Provider.metrics.find((m) => m.key === 'month_sessions')?.value as number || 0,
+            monthUsersChange: ga4Provider.metrics.find((m) => m.key === 'month_users')?.change,
+            monthSessionsChange: ga4Provider.metrics.find((m) => m.key === 'month_sessions')?.change,
+          };
+
+          // Helper to aggregate daily data into weekly
+          const aggregateWeekly = (data: Array<{ date: string; value: number }>) => {
+            const weeks = new Map<string, { sum: number; count: number }>();
+
+            data.forEach((item) => {
+              const date = new Date(item.date);
+              const weekStart = new Date(date);
+              weekStart.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+              const weekKey = weekStart.toISOString().split('T')[0];
+
+              const existing = weeks.get(weekKey) || { sum: 0, count: 0 };
+              weeks.set(weekKey, { sum: existing.sum + item.value, count: existing.count + 1 });
+            });
+
+            return Array.from(weeks.entries())
+              .map(([date, { sum }]) => ({ date, value: sum }))
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .slice(-12); // Last 12 weeks
+          };
+
+          // Helper to aggregate daily data into monthly
+          const aggregateMonthly = (data: Array<{ date: string; value: number }>) => {
+            const months = new Map<string, { sum: number; count: number }>();
+
+            data.forEach((item) => {
+              const date = new Date(item.date);
+              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
+
+              const existing = months.get(monthKey) || { sum: 0, count: 0 };
+              months.set(monthKey, { sum: existing.sum + item.value, count: existing.count + 1 });
+            });
+
+            return Array.from(months.entries())
+              .map(([date, { sum }]) => ({ date, value: sum }))
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .slice(-12); // Last 12 months
+          };
+
+          // Format historical data for charts
+          const dailyData = ga4History
+            .map((h) => ({
+              date: h.date,
+              users: h.users as number,
+              sessions: h.sessions as number,
+            }))
+            .filter((item) => item.users !== undefined);
+
+          // Daily history (last 14 days for "Today" card)
+          const dailyUsers = dailyData.map(d => ({ date: d.date, value: d.users })).slice(-14);
+          const dailySessions = dailyData.map(d => ({ date: d.date, value: d.sessions })).slice(-14);
+
+          // Weekly history (last 12 weeks for "This Week" card)
+          const weeklyUsers = aggregateWeekly(dailyData.map(d => ({ date: d.date, value: d.users })));
+          const weeklySessions = aggregateWeekly(dailyData.map(d => ({ date: d.date, value: d.sessions })));
+
+          // Monthly history (last 12 months for "This Month" card)
+          const monthlyUsers = aggregateMonthly(dailyData.map(d => ({ date: d.date, value: d.users })));
+          const monthlySessions = aggregateMonthly(dailyData.map(d => ({ date: d.date, value: d.sessions })));
+
+          return (
+            <section className="mb-12">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+                  Website Traffic
+                </h2>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  Visitor and session data from Google Analytics
+                </p>
+              </div>
+
+              <ProviderStatus provider={ga4Provider} />
+
+              <div className="mt-6">
+                <TrafficMetrics
+                  {...ga4Metrics}
+                  dailyUsersHistory={dailyUsers}
+                  dailySessionsHistory={dailySessions}
+                  weeklyUsersHistory={weeklyUsers}
+                  weeklySessionsHistory={weeklySessions}
+                  monthlyUsersHistory={monthlyUsers}
+                  monthlySessionsHistory={monthlySessions}
+                />
+              </div>
+            </section>
+          );
+        })()}
 
         {/* Sales Metrics from Attio */}
         {(() => {
