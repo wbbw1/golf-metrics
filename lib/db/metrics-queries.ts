@@ -83,6 +83,7 @@ export async function getLatestMetrics(): Promise<DashboardMetrics> {
       lastFetched: lastFetchAt,
       isStale,
       fetchIntervalMinutes: provider.fetchIntervalMinutes,
+      metadata: latestSnapshot.rawData as Record<string, any>,
     });
   }
 

@@ -50,7 +50,9 @@ export interface AttioAttributeValue {
   active_until: string | null;
   created_by_actor: AttioActor;
   attribute_type: string;
-  value: any;
+  value?: any;
+  currency_value?: number; // For currency type attributes
+  currency_code?: string; // For currency type attributes (e.g., "USD")
 }
 
 /**
@@ -84,4 +86,5 @@ export interface AttioDeal {
   stageChangedAt: Date;
   daysInStage: number;
   webUrl: string;
+  nextStepDate: Date | null; // Date of next scheduled call/demo
 }

@@ -56,58 +56,35 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
   }
 
   /**
-   * Search for deals and fetch full details
+   * Fetch all deals using Query endpoint with pagination
    */
   private async searchAndFetchDeals(): Promise<AttioRawData> {
-    // Step 1: Search for all deals
-    const searchUrl = `${this.baseUrl}/objects/records/search`;
-    const searchResponse = await fetch(searchUrl, {
+    this.log('Fetching deals from Attio using Query endpoint');
+
+    const url = `${this.baseUrl}/objects/${this.objectSlug}/records/query`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        query: '', // Empty query returns default set
-        objects: [this.objectSlug],
-        request_as: { type: 'workspace' },
-        limit: 25, // Max for search endpoint
+        // NO filter parameter - returns all records
+        limit: 500,
+        offset: 0,
       }),
     });
 
-    if (!searchResponse.ok) {
-      const errorText = await searchResponse.text();
-      throw new Error(`Attio Search API error (${searchResponse.status}): ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Attio Query API error (${response.status}): ${errorText}`);
     }
 
-    const searchData = await searchResponse.json();
-    const dealIds = searchData.data || [];
+    const data = await response.json();
+    const records = data.data || [];
 
-    this.log(`Found ${dealIds.length} deals via search`);
-
-    // Step 2: Fetch full details for each deal
-    const records: AttioRecord[] = [];
-
-    for (const dealRef of dealIds) {
-      const recordId = dealRef.id.record_id;
-
-      const detailResponse = await fetch(
-        `${this.baseUrl}/objects/${this.objectSlug}/records/${recordId}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (detailResponse.ok) {
-        const detailData = await detailResponse.json();
-        records.push(detailData.data);
-      }
-    }
-
+    this.log(`Fetched ${records.length} deals`);
     return { data: records };
   }
 
@@ -240,6 +217,7 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
           dealValue: d.dealValue,
           daysInStage: d.daysInStage,
           webUrl: d.webUrl,
+          nextStepDate: d.nextStepDate,
         })),
       },
     };
@@ -288,11 +266,18 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
 
     const stage = stageTitle as PipelineStage;
 
-    // Extract deal value (might be empty array)
+    // Extract deal value (currency field)
     const valueAttribute = values['value'];
     const dealValue =
       valueAttribute && valueAttribute.length > 0
-        ? valueAttribute[0].value
+        ? (valueAttribute[0].currency_value || valueAttribute[0].value)
+        : null;
+
+    // Extract next step date (for scheduled calls/demos)
+    const nextStepAttribute = values['next_step_date'];
+    const nextStepDate =
+      nextStepAttribute && nextStepAttribute.length > 0 && nextStepAttribute[0].value
+        ? new Date(nextStepAttribute[0].value)
         : null;
 
     // Extract timestamps
@@ -318,6 +303,7 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
       stageChangedAt,
       daysInStage,
       webUrl: record.web_url,
+      nextStepDate,
     };
   }
 

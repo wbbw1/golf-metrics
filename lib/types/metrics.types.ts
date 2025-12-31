@@ -25,6 +25,7 @@ export interface ProviderDashboardData {
   isFetching?: boolean;
   error?: string;
   fetchIntervalMinutes: number;
+  metadata?: Record<string, any>; // Additional provider-specific data (e.g., deals for Attio)
 }
 
 /**

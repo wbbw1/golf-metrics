@@ -2,6 +2,7 @@ import { getLatestMetrics, getDashboardStats, getMetricsTimeSeries } from '@/lib
 import { MetricCard } from '@/app/components/MetricCard';
 import { ProviderStatus } from '@/app/components/ProviderStatus';
 import { FetchTrigger } from '@/app/components/FetchTrigger';
+import { PipelineSnapshot } from '@/app/components/ceo/PipelineSnapshot';
 import { formatDistanceToNow } from 'date-fns';
 
 // Force dynamic rendering
@@ -81,45 +82,58 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Providers Section */}
-        {metricsData.providers.map((provider) => {
-          const history = providerHistory.find((h) => h.providerId === provider.providerId);
+        {/* Marketing Metrics Section */}
+        <section className="mb-12">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              Marketing Metrics
+            </h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              LinkedIn performance and engagement from Notion
+            </p>
+          </div>
 
-          return (
-            <section key={provider.providerId} className="mb-12">
-              <ProviderStatus provider={provider} />
+          {metricsData.providers
+            .filter((provider) => provider.providerId !== 'attio')
+            .map((provider) => {
+              const history = providerHistory.find((h) => h.providerId === provider.providerId);
 
-              {/* Metrics Grid */}
-              {provider.metrics.length > 0 ? (
-                <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {provider.metrics.map((metric) => {
-                    // Format historical data for MetricHistory component
-                    const historyData = history?.history
-                      .map((h) => ({
-                        date: h.date,
-                        value: h[metric.key]
-                      }))
-                      .filter((item) => item.value !== undefined && typeof item.value === 'number') || [];
+              return (
+                <div key={provider.providerId} className="mb-8">
+                  <ProviderStatus provider={provider} />
 
-                    return (
-                      <MetricCard
-                        key={metric.key}
-                        metric={metric}
-                        historyData={historyData}
-                      />
-                    );
-                  })}
+                  {/* Metrics Grid */}
+                  {provider.metrics.length > 0 ? (
+                    <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {provider.metrics.map((metric) => {
+                        // Format historical data for MetricHistory component
+                        const historyData = history?.history
+                          .map((h) => ({
+                            date: h.date,
+                            value: h[metric.key]
+                          }))
+                          .filter((item) => item.value !== undefined && typeof item.value === 'number') || [];
+
+                        return (
+                          <MetricCard
+                            key={metric.key}
+                            metric={metric}
+                            historyData={historyData}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-6 rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        No metrics available yet
+                      </p>
+                    </div>
+                  )}
                 </div>
-              ) : (
-              <div className="mt-6 rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  No metrics available yet
-                </p>
-              </div>
-              )}
-            </section>
-          );
-        })}
+              );
+            })}
+        </section>
 
         {metricsData.providers.length === 0 && (
           <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
@@ -131,6 +145,38 @@ export default async function DashboardPage() {
             </p>
           </div>
         )}
+
+        {/* Sales Metrics from Attio */}
+        {(() => {
+          const attioProvider = metricsData.providers.find((p) => p.providerId === 'attio');
+          if (!attioProvider) return null;
+
+          // Extract deals from metadata and calculate pilot revenue
+          const allDeals = attioProvider.metadata?.deals || [];
+          const pilotDeals = allDeals.filter((d: any) => d.stage === 'Pilot');
+          const pilotRevenue = pilotDeals.reduce((sum: number, deal: any) =>
+            sum + (deal.dealValue || 0), 0
+          );
+
+          return (
+            <section className="mb-12">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+                  Sales Pipeline
+                </h2>
+                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                  Current deals and what needs attention
+                </p>
+              </div>
+
+              <ProviderStatus provider={attioProvider} />
+
+              <div className="mt-6">
+                <PipelineSnapshot deals={allDeals} pilotRevenue={pilotRevenue} />
+              </div>
+            </section>
+          );
+        })()}
       </main>
     </div>
   );
