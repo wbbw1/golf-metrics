@@ -40,19 +40,75 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
   }
 
   /**
-   * Fetch all deals from Attio
+   * Fetch all deals from Attio using Search endpoint
    */
   async fetch(): Promise<ProviderMetrics> {
     return this.fetchWithRetry(async () => {
       this.log('Fetching deals from Attio CRM');
 
-      // Fetch all deals without filtering by stage
+      // Use Search endpoint to find all deals (Query endpoint returns 0 results)
       const response = await this.rateLimiter.execute(async () => {
-        return await this.queryRecords({});
+        return await this.searchAndFetchDeals();
       });
 
       return this.transform(response);
     });
+  }
+
+  /**
+   * Search for deals and fetch full details
+   */
+  private async searchAndFetchDeals(): Promise<AttioRawData> {
+    // Step 1: Search for all deals
+    const searchUrl = `${this.baseUrl}/objects/records/search`;
+    const searchResponse = await fetch(searchUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: '', // Empty query returns default set
+        objects: [this.objectSlug],
+        request_as: { type: 'workspace' },
+        limit: 25, // Max for search endpoint
+      }),
+    });
+
+    if (!searchResponse.ok) {
+      const errorText = await searchResponse.text();
+      throw new Error(`Attio Search API error (${searchResponse.status}): ${errorText}`);
+    }
+
+    const searchData = await searchResponse.json();
+    const dealIds = searchData.data || [];
+
+    this.log(`Found ${dealIds.length} deals via search`);
+
+    // Step 2: Fetch full details for each deal
+    const records: AttioRecord[] = [];
+
+    for (const dealRef of dealIds) {
+      const recordId = dealRef.id.record_id;
+
+      const detailResponse = await fetch(
+        `${this.baseUrl}/objects/${this.objectSlug}/records/${recordId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (detailResponse.ok) {
+        const detailData = await detailResponse.json();
+        records.push(detailData.data);
+      }
+    }
+
+    return { data: records };
   }
 
   /**
@@ -215,41 +271,43 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
   private parseDeal(record: AttioRecord): AttioDeal | null {
     const { values } = record;
 
-    // Extract company name (try multiple possible attribute names)
-    const companyName =
-      this.extractValue(values, 'company_name') ||
-      this.extractValue(values, 'name') ||
-      this.extractValue(values, 'company') ||
-      'Unknown Company';
+    // Extract deal name (this is the company/deal name)
+    const companyName = this.extractValue(values, 'name') || 'Unknown Company';
 
-    // Extract stage
-    const stageValue = this.extractValue(values, 'stage') || this.extractValue(values, 'status');
-    if (!stageValue) {
+    // Extract stage from status object
+    const stageAttribute = values['stage'];
+    if (!stageAttribute || stageAttribute.length === 0) {
       this.warn(`No stage found for record ${record.id.record_id}`);
       return null;
     }
 
-    const stage = stageValue as PipelineStage;
+    // Stage is stored in a nested status object
+    const stageData = stageAttribute[0];
+    const stageTitle =
+      (stageData as any).status?.title || stageData.value || 'Unknown';
 
-    // Extract deal value
+    const stage = stageTitle as PipelineStage;
+
+    // Extract deal value (might be empty array)
+    const valueAttribute = values['value'];
     const dealValue =
-      this.extractValue(values, 'deal_value') ||
-      this.extractValue(values, 'value') ||
-      this.extractValue(values, 'amount') ||
-      null;
+      valueAttribute && valueAttribute.length > 0
+        ? valueAttribute[0].value
+        : null;
 
     // Extract timestamps
     const createdAt = new Date(record.created_at);
 
-    // Get stage change timestamp (use the most recent value's active_from)
-    const stageAttribute = values['stage'] || values['status'];
-    const stageChangedAt = stageAttribute?.[0]?.active_from
+    // Get stage change timestamp
+    const stageChangedAt = stageAttribute[0]?.active_from
       ? new Date(stageAttribute[0].active_from)
       : createdAt;
 
     // Calculate days in current stage
     const now = new Date();
-    const daysInStage = Math.floor((now.getTime() - stageChangedAt.getTime()) / (1000 * 60 * 60 * 24));
+    const daysInStage = Math.floor(
+      (now.getTime() - stageChangedAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
 
     return {
       recordId: record.id.record_id,
@@ -283,8 +341,8 @@ export class AttioProvider extends BaseProvider<AttioConfig, AttioRawData> {
     try {
       this.log('Validating Attio configuration');
 
-      // Try to query with limit 1 to test authentication
-      await this.queryRecords({ limit: 1 });
+      // Try to query with empty filter to test authentication
+      await this.queryRecords({});
 
       this.log('✓ Attio configuration is valid');
       return true;
